@@ -19,6 +19,15 @@
     }
 }(function(_, Backbone) {
 
+    // Adds router to the handler for easy removal
+    Backbone.History.prototype.route = function(route, callback, router) {
+        this.handlers.unshift({
+            route: route,
+            callback: callback,
+            router: router
+        });
+    };
+
     Backbone.SubRoute = Backbone.Router.extend({
         constructor: function(prefix, options) {
 
@@ -101,8 +110,34 @@
             // for informational and debugging purposes and is not used by the actual routing code.
             this.routes[_route] = name;
 
-            // delegate the creation of the properly-prefixed route to Backbone
-            return Backbone.Router.prototype.route.call(this, _route, name, callback);
+            // Proceed as per usual, with one exception.
+            // i.e. pass `this` to `Backbone.history.route`.
+            if (!_.isRegExp(_route)) _route = this._routeToRegExp(_route);
+            if (_.isFunction(name)) {
+                callback = name;
+                name = '';
+            }
+            if (!callback) callback = this[name];
+            var router = this;
+            Backbone.history.route(_route, function(fragment) {
+                var args = router._extractParameters(_route, fragment);
+                router.execute(callback, args);
+                router.trigger.apply(router, ['route:' + name].concat(args));
+                router.trigger('route', name, args);
+                Backbone.history.trigger('route', router, name, args);
+            }, this);
+            return this;
+        },
+        // Remove this router's handlers from Backbone.history
+        // and remove all event listeners.
+        remove: function() {
+            this.off();
+            this.stopListening();
+            Backbone.history.handlers = _.reject(
+                Backbone.history.handlers,
+                function(handler) {
+                    return handler.router === this;
+                }, this);
         }
     });
     return Backbone.SubRoute;
